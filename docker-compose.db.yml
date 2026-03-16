@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stocksafe-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stocksafe}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - stocksafe_postgres_data:/var/lib/postgresql/data
+      - "./postgresql_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro"
+      - "./postgresql_seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-stocksafe}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  stocksafe_postgres_data:
