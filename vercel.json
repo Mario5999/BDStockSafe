@@ -1,0 +1,5 @@
+{
+  "version": 2,
+  "buildCommand": "echo \"La base de datos PostgreSQL no corre en Vercel; usa este directorio solo para esquema y seeds.\"",
+  "outputDirectory": "."
+}
