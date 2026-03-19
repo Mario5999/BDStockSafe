@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS products (
   cantidad                NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (cantidad >= 0),
   stock_minimo            NUMERIC(12,2) NOT NULL CHECK (stock_minimo >= 0),
   stock_maximo            NUMERIC(12,2) NOT NULL CHECK (stock_maximo >= stock_minimo),
+  is_active               BOOLEAN NOT NULL DEFAULT TRUE,
+  deleted_at              TIMESTAMPTZ,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -105,7 +107,7 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS inventory_movements (
   id                      BIGSERIAL PRIMARY KEY,
   product_id              BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE ON UPDATE CASCADE,
-  restaurant_user_id      BIGINT NOT NULL REFERENCES restaurant_users(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  restaurant_user_id      BIGINT REFERENCES restaurant_users(id) ON DELETE SET NULL ON UPDATE RESTRICT,
   movement_type           VARCHAR(20) NOT NULL CHECK (movement_type IN ('entry', 'exit', 'adjustment')),
   quantity                NUMERIC(12,2) NOT NULL CHECK (quantity > 0),
   previous_quantity       NUMERIC(12,2) NOT NULL CHECK (previous_quantity >= 0),
@@ -123,7 +125,7 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
 CREATE TABLE IF NOT EXISTS inventory_checks (
   id                      BIGSERIAL PRIMARY KEY,
   product_id              BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE ON UPDATE CASCADE,
-  restaurant_user_id      BIGINT NOT NULL REFERENCES restaurant_users(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  restaurant_user_id      BIGINT REFERENCES restaurant_users(id) ON DELETE SET NULL ON UPDATE RESTRICT,
   cantidad_sistema        NUMERIC(12,2) NOT NULL CHECK (cantidad_sistema >= 0),
   cantidad_fisica         NUMERIC(12,2) NOT NULL CHECK (cantidad_fisica >= 0),
   diferencia              NUMERIC(12,2) NOT NULL,
@@ -187,6 +189,10 @@ ALTER TABLE report_generation_items
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
 -- ============================================================
 -- ÍNDICES
 -- ============================================================
@@ -197,6 +203,7 @@ CREATE INDEX IF NOT EXISTS idx_restaurant_users_restaurante   ON restaurant_user
 CREATE INDEX IF NOT EXISTS idx_restaurant_users_usuario       ON restaurant_users(usuario);
 CREATE INDEX IF NOT EXISTS idx_sections_restaurante_id        ON sections(restaurante_id);
 CREATE INDEX IF NOT EXISTS idx_products_restaurante_id        ON products(restaurante_id);
+CREATE INDEX IF NOT EXISTS idx_products_restaurante_active    ON products(restaurante_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_products_section_id            ON products(section_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_movements_product_id ON inventory_movements(product_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_movements_user_id    ON inventory_movements(restaurant_user_id);
@@ -279,7 +286,8 @@ RETURNS TABLE (
     ) AS ultimo_movimiento_at
   FROM products p
   JOIN sections s ON s.id = p.section_id
-  WHERE p.restaurante_id = p_restaurante_id;
+  WHERE p.restaurante_id = p_restaurante_id
+    AND p.is_active = TRUE;
 $$ LANGUAGE sql STABLE;
 
 -- Valida que la sección asociada al producto pertenezca al mismo restaurante.
@@ -316,6 +324,10 @@ DECLARE
   product_restaurante_id BIGINT;
   user_restaurante_id BIGINT;
 BEGIN
+  IF NEW.restaurant_user_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
   SELECT p.restaurante_id
   INTO product_restaurante_id
   FROM products p
